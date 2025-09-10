@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XO</title>
+<style>
+  body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+    background: #121212;
+    color: #fff;
+    font-family: sans-serif;
+  }
+
+  #game {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    width: 80vw;
+    height: 80vw;
+    max-width: 600px;
+    max-height: 600px;
+    background: #1e1e1e;
+    border: 5px solid #fff;
+    position: relative;
+  }
+
+  .cell {
+    border: 1px solid #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 8vw;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .cell:hover {
+    background: #333;
+  }
+
+  .line {
+    position: absolute;
+    background: red;
+    z-index: 10;
+    border-radius: 2px;
+  }
+</style>
+</head>
+<body>
+
+<div id="game"></div>
+
+<script>
+const game = document.getElementById('game');
+let board = Array(9).fill('');
+let currentPlayer = 'X';
+let gameOver = false;
+
+// Створюємо клітинки
+for (let i = 0; i < 9; i++) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  cell.dataset.index = i;
+  game.appendChild(cell);
+}
+
+// Делегуємо події для всіх клітинок
+game.addEventListener('click', (e) => {
+  const target = e.target;
+  if (!target.classList.contains('cell') || gameOver) return;
+
+  const idx = target.dataset.index;
+  if (board[idx] !== '') return;
+
+  board[idx] = currentPlayer;
+  target.textContent = currentPlayer;
+
+  if (checkWin()) {
+    gameOver = true;
+    return;
+  }
+
+  if (!board.includes('')) {
+    gameOver = true;
+    return;
+  }
+
+  currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+});
+
+// Перевірка перемоги
+function checkWin() {
+  const wins = [
+    [0,1,2], [3,4,5], [6,7,8], // горизонталі
+    [0,3,6], [1,4,7], [2,5,8], // вертикалі
+    [0,4,8], [2,4,6]           // діагоналі
+  ];
+
+  for (let combo of wins) {
+    const [a,b,c] = combo;
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+      drawLine(combo);
+      return true;
+    }
+  }
+  return false;
+}
+
+// Створення лінії перемоги через центри клітинок
+function drawLine(combo) {
+  const line = document.createElement('div');
+  line.className = 'line';
+
+  const rects = combo.map(i => game.children[i].getBoundingClientRect());
+  const gameRect = game.getBoundingClientRect();
+
+  const x1 = rects[0].left + rects[0].width / 2 - gameRect.left;
+  const y1 = rects[0].top + rects[0].height / 2 - gameRect.top;
+  const x2 = rects[2].left + rects[2].width / 2 - gameRect.left;
+  const y2 = rects[2].top + rects[2].height / 2 - gameRect.top;
+
+  const length = Math.hypot(x2 - x1, y2 - y1);
+  const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+
+  line.style.width = `${length}px`;
+  line.style.height = '5px';
+  line.style.top = `${y1 - 2.5}px`;
+  line.style.left = `${x1}px`;
+  line.style.transformOrigin = '0 50%';
+  line.style.transform = `rotate(${angle}deg)`;
+
+  game.appendChild(line);
+}
+</script>
+
+</body>
+</html>
