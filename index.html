@@ -37,6 +37,7 @@
     font-size: 8vw;
     cursor: pointer;
     transition: background 0.2s;
+    user-select: none;
   }
 
   .cell:hover {
@@ -48,6 +49,7 @@
     background: red;
     z-index: 10;
     border-radius: 2px;
+    display: none;
   }
 </style>
 </head>
@@ -60,6 +62,15 @@ const game = document.getElementById('game');
 let board = Array(9).fill('');
 let currentPlayer = 'X';
 let gameOver = false;
+let moves = 0;
+
+// Кеш координат центрів клітинок
+let centers = [];
+
+// Лінія перемоги (одна на всю гру)
+const line = document.createElement('div');
+line.className = 'line';
+game.appendChild(line);
 
 // Створюємо клітинки
 for (let i = 0; i < 9; i++) {
@@ -69,23 +80,46 @@ for (let i = 0; i < 9; i++) {
   game.appendChild(cell);
 }
 
-// Делегуємо події для всіх клітинок
+// Оновлюємо кеш координат
+function updateCenters() {
+  const gameRect = game.getBoundingClientRect();
+  centers = Array.from(game.children)
+    .filter(c => c.classList.contains('cell'))
+    .map(cell => {
+      const rect = cell.getBoundingClientRect();
+      return {
+        x: rect.left + rect.width / 2 - gameRect.left,
+        y: rect.top + rect.height / 2 - gameRect.top
+      };
+    });
+}
+updateCenters();
+
+// Debounce для resize
+let resizeTimeout;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(updateCenters, 150);
+});
+
+// Делегуємо події
 game.addEventListener('click', (e) => {
   const target = e.target;
   if (!target.classList.contains('cell') || gameOver) return;
 
-  const idx = target.dataset.index;
+  const idx = +target.dataset.index;
   if (board[idx] !== '') return;
 
   board[idx] = currentPlayer;
   target.textContent = currentPlayer;
+  moves++;
 
   if (checkWin()) {
     gameOver = true;
     return;
   }
 
-  if (!board.includes('')) {
+  if (moves === 9) {
     gameOver = true;
     return;
   }
@@ -96,45 +130,38 @@ game.addEventListener('click', (e) => {
 // Перевірка перемоги
 function checkWin() {
   const wins = [
-    [0,1,2], [3,4,5], [6,7,8], // горизонталі
-    [0,3,6], [1,4,7], [2,5,8], // вертикалі
-    [0,4,8], [2,4,6]           // діагоналі
+    [0,1,2], [3,4,5], [6,7,8],
+    [0,3,6], [1,4,7], [2,5,8],
+    [0,4,8], [2,4,6]
   ];
 
   for (let combo of wins) {
     const [a,b,c] = combo;
     if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-      drawLine(combo);
+      drawLine(a, c);
       return true;
     }
   }
   return false;
 }
 
-// Створення лінії перемоги через центри клітинок
-function drawLine(combo) {
-  const line = document.createElement('div');
-  line.className = 'line';
+// Малюємо лінію
+function drawLine(a, c) {
+  const p1 = centers[a];
+  const p2 = centers[c];
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
 
-  const rects = combo.map(i => game.children[i].getBoundingClientRect());
-  const gameRect = game.getBoundingClientRect();
-
-  const x1 = rects[0].left + rects[0].width / 2 - gameRect.left;
-  const y1 = rects[0].top + rects[0].height / 2 - gameRect.top;
-  const x2 = rects[2].left + rects[2].width / 2 - gameRect.left;
-  const y2 = rects[2].top + rects[2].height / 2 - gameRect.top;
-
-  const length = Math.hypot(x2 - x1, y2 - y1);
-  const angle = Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI;
+  const length = Math.hypot(dx, dy);
+  const angle = Math.atan2(dy, dx) * 180 / Math.PI;
 
   line.style.width = `${length}px`;
   line.style.height = '5px';
-  line.style.top = `${y1 - 2.5}px`;
-  line.style.left = `${x1}px`;
+  line.style.top = `${p1.y - 2.5}px`;
+  line.style.left = `${p1.x}px`;
   line.style.transformOrigin = '0 50%';
   line.style.transform = `rotate(${angle}deg)`;
-
-  game.appendChild(line);
+  line.style.display = 'block';
 }
 </script>
 
