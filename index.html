@@ -4,165 +4,300 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>XO</title>
+
+<!-- PWA: manifest вбудований через blob -->
+<script>
+  (() => {
+    const manifest = {
+      name: "XO",
+      short_name: "XO",
+      description: "Гра хрестики-нулики",
+      start_url: "./",
+      display: "standalone",
+      background_color: "#0f0f0f",
+      theme_color: "#0f0f0f",
+      orientation: "portrait-primary",
+      icons: [
+        {
+          src: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' fill='%230f0f0f'/><text x='50%' y='55%' dominant-baseline='middle' text-anchor='middle' font-size='320' font-family='monospace' fill='%23e8e8e8'>X</text></svg>",
+          sizes: "any",
+          type: "image/svg+xml",
+          purpose: "any maskable"
+        }
+      ]
+    };
+    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = URL.createObjectURL(blob);
+    document.currentScript.after(link);
+  })();
+</script>
+
+<meta name="theme-color" content="#0f0f0f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="XO">
+
 <style>
+  *, *::before, *::after { box-sizing: border-box; }
+
   body {
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
-    height: 100vh;
+    min-height: 100dvh;
     margin: 0;
-    background: #121212;
-    color: #fff;
-    font-family: sans-serif;
+    background: #0f0f0f;
+    color: #e8e8e8;
+    font-family: 'Courier New', monospace;
+    gap: 24px;
+  }
+
+  #status {
+    font-size: clamp(14px, 3vw, 18px);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    opacity: 0.6;
+    height: 1.5em;
+    transition: opacity 0.2s;
   }
 
   #game {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     grid-template-rows: repeat(3, 1fr);
-    width: 80vw;
-    height: 80vw;
-    max-width: 600px;
-    max-height: 600px;
-    background: #1e1e1e;
-    border: 5px solid #fff;
+    width: min(80vw, 80vh, 420px);
+    height: min(80vw, 80vh, 420px);
+    background: #0f0f0f;
+    border: 1px solid #2a2a2a;
     position: relative;
   }
 
   .cell {
-    border: 1px solid #fff;
+    border: 1px solid #2a2a2a;
     display: flex;
     justify-content: center;
     align-items: center;
-    font-size: 8vw;
+    font-size: clamp(32px, 10vw, 80px);
     cursor: pointer;
-    transition: background 0.2s;
+    color: transparent;
+    transition: background-color 0.15s;
     user-select: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
-  .cell:hover {
-    background: #333;
-  }
+  .cell[data-v] { color: #e8e8e8; cursor: default; }
+  .cell:not([data-v]):hover { background-color: #1a1a1a; }
+  #game.over .cell:not([data-v]) { cursor: default; }
 
   .line {
     position: absolute;
-    background: red;
+    background: #e8e8e8;
+    height: 1px;
     z-index: 10;
-    border-radius: 2px;
-    display: none;
+    transform-origin: left center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
   }
+  .line.show { opacity: 1; }
+
+  #restart {
+    font-family: inherit;
+    font-size: clamp(11px, 2.5vw, 14px);
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: #e8e8e8;
+    background: none;
+    border: 1px solid #2a2a2a;
+    padding: 10px 28px;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s, border-color 0.15s, background-color 0.15s;
+  }
+  #restart.show { opacity: 1; pointer-events: auto; }
+  #restart:hover { background-color: #1a1a1a; border-color: #444; }
 </style>
 </head>
 <body>
 
+<div id="status">хід: X</div>
 <div id="game"></div>
+<button id="restart">знову</button>
 
 <script>
-const game = document.getElementById('game');
-let board = Array(9).fill('');
-let currentPlayer = 'X';
-let gameOver = false;
-let moves = 0;
+// ── PWA: Service Worker вбудований через blob ──────────────────────
+if ('serviceWorker' in navigator) {
+  const swCode = `
+    const CACHE = 'xo-v1';
 
-// Кеш координат центрів клітинок
-let centers = [];
+    self.addEventListener('install', e => {
+      // Кешуємо сам себе (один файл = весь застосунок)
+      e.waitUntil(
+        caches.open(CACHE).then(c => c.add(self.location.href))
+      );
+      self.skipWaiting();
+    });
 
-// Лінія перемоги (одна на всю гру)
-const line = document.createElement('div');
-line.className = 'line';
-game.appendChild(line);
+    self.addEventListener('activate', e => {
+      // Видаляємо старі кеші
+      e.waitUntil(
+        caches.keys().then(keys =>
+          Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+        )
+      );
+      self.clients.claim();
+    });
 
-// Створюємо клітинки
+    self.addEventListener('fetch', e => {
+      // Cache-first: якщо є в кеші — відповідаємо без мережі
+      e.respondWith(
+        caches.match(e.request).then(cached => cached || fetch(e.request))
+      );
+    });
+  `;
+
+  const swBlob = new Blob([swCode], { type: 'application/javascript' });
+  const swUrl  = URL.createObjectURL(swBlob);
+
+  navigator.serviceWorker.register(swUrl, { scope: './' })
+    .catch(() => {}); // тихо ігноруємо помилки реєстрації
+}
+
+// ── DOM ────────────────────────────────────────────────────────────
+const gameEl     = document.getElementById('game');
+const statusEl   = document.getElementById('status');
+const restartBtn = document.getElementById('restart');
+
+// ── Константи ─────────────────────────────────────────────────────
+const WINS = [
+  [0,1,2],[3,4,5],[6,7,8],
+  [0,3,6],[1,4,7],[2,5,8],
+  [0,4,8],[2,4,6]
+];
+
+// ── Стан гри ──────────────────────────────────────────────────────
+let board, current, over, moveCount;
+
+// ── Ініціалізація ─────────────────────────────────────────────────
+function init() {
+  board     = new Array(9).fill('');
+  current   = 'X';
+  over      = false;
+  moveCount = 0;
+
+  for (const cell of gameEl.querySelectorAll('.cell')) {
+    cell.textContent = '';
+    cell.removeAttribute('data-v');
+  }
+
+  lineEl.classList.remove('show');
+  gameEl.classList.remove('over');
+  statusEl.textContent = `хід: ${current}`;
+  statusEl.style.opacity = '0.6';
+  restartBtn.classList.remove('show');
+}
+
+// ── Створюємо клітинки один раз ───────────────────────────────────
+const fragment = document.createDocumentFragment();
 for (let i = 0; i < 9; i++) {
   const cell = document.createElement('div');
   cell.className = 'cell';
   cell.dataset.index = i;
-  game.appendChild(cell);
+  fragment.appendChild(cell);
 }
 
-// Оновлюємо кеш координат
-function updateCenters() {
-  const gameRect = game.getBoundingClientRect();
-  centers = Array.from(game.children)
-    .filter(c => c.classList.contains('cell'))
-    .map(cell => {
-      const rect = cell.getBoundingClientRect();
-      return {
-        x: rect.left + rect.width / 2 - gameRect.left,
-        y: rect.top + rect.height / 2 - gameRect.top
-      };
-    });
+const lineEl = document.createElement('div');
+lineEl.className = 'line';
+gameEl.appendChild(lineEl);
+gameEl.appendChild(fragment);
+
+// ── Кеш центрів клітинок (ліниве обчислення) ──────────────────────
+let centers = null;
+
+function getCenters() {
+  if (centers) return centers;
+  const gr = gameEl.getBoundingClientRect();
+  centers = Array.from(gameEl.querySelectorAll('.cell')).map(cell => {
+    const r = cell.getBoundingClientRect();
+    return {
+      x: r.left + r.width  * 0.5 - gr.left,
+      y: r.top  + r.height * 0.5 - gr.top
+    };
+  });
+  return centers;
 }
-updateCenters();
 
-// Debounce для resize
-let resizeTimeout;
-window.addEventListener('resize', () => {
-  clearTimeout(resizeTimeout);
-  resizeTimeout = setTimeout(updateCenters, 150);
-});
+window.addEventListener('resize', () => { centers = null; }, { passive: true });
 
-// Делегуємо події
-game.addEventListener('click', (e) => {
-  const target = e.target;
-  if (!target.classList.contains('cell') || gameOver) return;
+// ── Обробник кліку ────────────────────────────────────────────────
+gameEl.addEventListener('click', (e) => {
+  if (over) return;
+  const cell = e.target;
+  if (!cell.classList.contains('cell')) return;
 
-  const idx = +target.dataset.index;
+  const idx = +cell.dataset.index;
   if (board[idx] !== '') return;
 
-  board[idx] = currentPlayer;
-  target.textContent = currentPlayer;
-  moves++;
+  board[idx] = current;
+  cell.textContent = current;
+  cell.dataset.v = current;
+  moveCount++;
 
-  if (checkWin()) {
-    gameOver = true;
+  const winCombo = getWin();
+  if (winCombo) {
+    over = true;
+    gameEl.classList.add('over');
+    statusEl.textContent = `перемогли: ${current}`;
+    statusEl.style.opacity = '1';
+    restartBtn.classList.add('show');
+    requestAnimationFrame(() => drawLine(winCombo[0], winCombo[2]));
     return;
   }
 
-  if (moves === 9) {
-    gameOver = true;
+  if (moveCount === 9) {
+    over = true;
+    gameEl.classList.add('over');
+    statusEl.textContent = 'нічия';
+    statusEl.style.opacity = '1';
+    restartBtn.classList.add('show');
     return;
   }
 
-  currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
-});
+  current = current === 'X' ? 'O' : 'X';
+  statusEl.textContent = `хід: ${current}`;
+}, { passive: true });
 
-// Перевірка перемоги
-function checkWin() {
-  const wins = [
-    [0,1,2], [3,4,5], [6,7,8],
-    [0,3,6], [1,4,7], [2,5,8],
-    [0,4,8], [2,4,6]
-  ];
-
-  for (let combo of wins) {
-    const [a,b,c] = combo;
-    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-      drawLine(a, c);
-      return true;
-    }
+// ── Перевірка перемоги ────────────────────────────────────────────
+function getWin() {
+  for (const [a, b, c] of WINS) {
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) return [a, b, c];
   }
-  return false;
+  return null;
 }
 
-// Малюємо лінію
+// ── Малювання лінії ───────────────────────────────────────────────
 function drawLine(a, c) {
-  const p1 = centers[a];
-  const p2 = centers[c];
-  const dx = p2.x - p1.x;
-  const dy = p2.y - p1.y;
+  const cs = getCenters();
+  const p1 = cs[a], p2 = cs[c];
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
 
-  const length = Math.hypot(dx, dy);
-  const angle = Math.atan2(dy, dx) * 180 / Math.PI;
-
-  line.style.width = `${length}px`;
-  line.style.height = '5px';
-  line.style.top = `${p1.y - 2.5}px`;
-  line.style.left = `${p1.x}px`;
-  line.style.transformOrigin = '0 50%';
-  line.style.transform = `rotate(${angle}deg)`;
-  line.style.display = 'block';
+  lineEl.style.cssText = `
+    width:${Math.hypot(dx, dy)}px;
+    top:${p1.y}px;
+    left:${p1.x}px;
+    transform:rotate(${Math.atan2(dy, dx) * 180 / Math.PI}deg);
+  `;
+  lineEl.classList.add('show');
 }
+
+// ── Рестарт ───────────────────────────────────────────────────────
+restartBtn.addEventListener('click', init, { passive: true });
+init();
 </script>
 
 </body>
